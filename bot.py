@@ -141,13 +141,13 @@ def handle_download(call):
         merge_fmt = 'mkv'
 
     ydl_opts = {
-        'format': dl_format,
-        'outtmpl': f'downloads/{video_id}.%(ext)s',
-        'quiet': True,
-        'concurrent_fragment_downloads': 5,
-        'merge_output_format': merge_fmt 
-        'cookiefile': 'cookies.txt'
-    }
+    'format': dl_format,
+    'outtmpl': f'downloads/{video_id}.%(ext)s',
+    'quiet': True,
+    'concurrent_fragment_downloads': 5,
+    'merge_output_format': merge_fmt,
+    'cookiefile': 'cookies.txt'
+}
 
     os.makedirs('downloads', exist_ok=True)
     
