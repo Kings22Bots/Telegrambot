@@ -64,11 +64,15 @@ def main():
         print("ERROR: BOT_TOKEN environment variable is missing!")
         return
 
-    app = Application.builder().token(TOKEN).build()
+    # Added 'connect_timeout' and 'read_timeout' to prevent the TimedOut error
+    app = Application.builder().token(TOKEN).connect_timeout(30).read_timeout(30).build()
+    
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("Bot is live and PUBLIC on Railway!")
-    app.run_polling()
+    
+    # Use 'close_loop=False' for better stability on servers
+    app.run_polling(drop_pending_updates=True) 
 
 if __name__ == '__main__':
     main()
