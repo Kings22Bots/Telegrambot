@@ -2,80 +2,122 @@ import os
 import glob
 import subprocess
 import logging
+import json
 import random
 import asyncio
-from telegram import Update, InputMediaPhoto, InputMediaVideo
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo
+from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# Use Environment Variables for the Token on Railway!
+# --- CONFIGURATION ---
 TOKEN = os.getenv('BOT_TOKEN', '8636548271:AAEwAzj_qF3yS2opnixI_GbviPUpR6sobCo')
-DOWNLOAD_DIR = '/tmp/downloads' # Use /tmp for Railway/Cloud hosting
+DOWNLOAD_DIR = '/tmp/downloads'
 COOKIES = 'cookies.txt'
 
 logging.basicConfig(level=logging.INFO)
 
-async def download_media(url):
-    if not os.path.exists(DOWNLOAD_DIR):
-        os.makedirs(DOWNLOAD_DIR)
-    
-    # Random delay to prevent "Automated Behavior" flag
-    await asyncio.sleep(random.uniform(2, 5))
-
-    # Video Downloader - The "Bulletproof" Merge Version
-    y_cmd = [
+# Helper to get available formats
+def get_formats(url):
+    cmd = [
         'yt-dlp',
         '--cookies', COOKIES,
-        # This string finds the best mp4 video + m4a audio, or just the best single file
-        '-f', 'bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
-        '--merge-output-format', 'mp4',
-        '--recode-video', 'mp4',
-        '--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac',
-        '-P', DOWNLOAD_DIR,
-        '-o', 'vid_%(id)s.%(ext)s',
+        '--dump-json',
         '--no-playlist',
         url
     ]
-
-    # Gallery-dl for images
-    g_cmd = ['gallery-dl', '--cookies', COOKIES, '--directory', DOWNLOAD_DIR, url]
-
-    subprocess.run(g_cmd, capture_output=True)
-    subprocess.run(y_cmd, capture_output=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    
+    data = json.loads(result.stdout)
+    formats = []
+    
+    # Filter for video formats that have a known resolution
+    for f in data.get('formats', []):
+        if f.get('vcodec') != 'none' and f.get('height'):
+            resolution = f"{f['height']}p"
+            ext = f['ext']
+            format_id = f['format_id']
+            # We store a label for the button and the ID to download
+            formats.append({
+                'label': f"{resolution} ({ext})",
+                'id': format_id
+            })
+    
+    # Remove duplicates and sort by height
+    unique_formats = {f['label']: f for f in formats}.values()
+    return sorted(unique_formats, key=lambda x: x['label'], reverse=True)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     if "instagram.com" not in url: return
 
-    status = await update.message.reply_text("⚡ Processing high-quality media...")
-
-    # Clear temp folder
-    for f in glob.glob(f'{DOWNLOAD_DIR}/*'):
-        try: os.remove(f)
-        except: pass
+    wait_msg = await update.message.reply_text("🔎 Fetching available qualities...")
     
-    await download_media(url)
+    formats = await asyncio.to_thread(get_formats, url)
+    
+    if not formats:
+        await wait_msg.edit_text("❌ Could not find video formats. It might be a private post or an image carousel.")
+        # Fallback: Just try gallery-dl for images
+        return
 
-    media_group = []
-    files = sorted(glob.glob(f'{DOWNLOAD_DIR}/*'))
+    # Create buttons
+    keyboard = []
+    for f in formats:
+        # Callback data format: "dl|[format_id]|[url]"
+        # Note: Telegram has a 64-byte limit for callback_data. 
+        # For long URLs, we store the URL in context.user_data instead.
+        context.user_data[f['id']] = url
+        keyboard.append([InlineKeyboardButton(f"Download {f['label']}", callback_data=f"dl|{f['id']}")])
 
-    for path in files:
-        if path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-            media_group.append(InputMediaPhoto(open(path, 'rb')))
-        elif path.lower().endswith(('.mp4', '.mkv', '.mov')):
-            media_group.append(InputMediaVideo(open(path, 'rb')))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await wait_msg.edit_text("✅ Choose your preferred quality:", reply_markup=reply_markup)
 
-    if media_group:
-        await update.message.reply_media_group(media_group[:10])
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('|')
+    format_id = data[1]
+    url = context.user_data.get(format_id)
+
+    if not url:
+        await query.edit_message_text("❌ Session expired. Please send the link again.")
+        return
+
+    await query.edit_message_text(f"🚀 Downloading {format_id} quality... please wait.")
+
+    # 1. Clear temp folder
+    if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
+    for f in glob.glob(f'{DOWNLOAD_DIR}/*'): os.remove(f)
+
+    # 2. Download specific format + best audio
+    # Using 'f' flag to combine the selected video with the best available audio
+    y_cmd = [
+        'yt-dlp',
+        '--cookies', COOKIES,
+        '-f', f"{format_id}+bestaudio/best",
+        '--merge-output-format', 'mp4',
+        '--recode-video', 'mp4',
+        '-P', DOWNLOAD_DIR,
+        '-o', 'vid_%(id)s.%(ext)s',
+        url
+    ]
+    
+    await asyncio.to_thread(subprocess.run, y_cmd, capture_output=True)
+
+    # 3. Send to user
+    files = glob.glob(f'{DOWNLOAD_DIR}/*.mp4')
+    if files:
+        await query.message.reply_video(video=open(files[0], 'rb'), caption="✅ Here is your video!")
     else:
-        await update.message.reply_text("❌ Audio merge failed or link invalid. Check Railway logs.")
-
-    await status.delete()
+        await query.message.reply_text("❌ Failed to process video/audio merge.")
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    print("🚀 Bot is running with Quality Selection...")
     app.run_polling()
 
 if __name__ == '__main__':
     main()
-    
