@@ -9,7 +9,6 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 TOKEN = '8636548271:AAEwAzj_qF3yS2opnixI_GbviPUpR6sobCo'  
 DOWNLOAD_DIR = 'temp_downloads'
 COOKIES = 'cookies.txt'
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -23,7 +22,6 @@ async def download_media(url):
     g_cmd = [
         'gallery-dl',
         '--cookies', COOKIES,
-        '--user-agent', USER_AGENT,
         '--directory', DOWNLOAD_DIR,
         '--filename', 'img_{id}_{num}.{extension}',
         url
@@ -33,7 +31,6 @@ async def download_media(url):
     y_cmd = [
         'yt-dlp',
         '--cookies', COOKIES,
-        '--user-agent', USER_AGENT,
         '-f', 'bestvideo[ext=mp4]+bestaudio[m4a]/best[ext=mp4]/best',
         '-P', DOWNLOAD_DIR,
         '-o', 'vid_%(id)s.%(ext)s',
