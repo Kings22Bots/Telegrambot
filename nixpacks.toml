@@ -1,5 +1,15 @@
+# Tell Nixpacks to use the Python language provider automatically
+providers = ["python"]
+
 [phases.setup]
-nixPkgs = ["python3", "pip", "ffmpeg", "gallery-dl"]
+# Only add the tools that Python DOESN'T provide by default
+# We remove 'pip' and 'python3' from here to avoid conflicts
+nixPkgs = ["ffmpeg", "gallery-dl"]
 
 [phases.install]
-cmds = ["python3 -m pip install -r requirements.txt"]
+# Use the standard install command
+cmds = ["pip install -r requirements.txt"]
+
+[phases.start]
+# Explicitly tell it to run your script
+cmd = "python bot.py"
