@@ -9,6 +9,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 TOKEN = '8636548271:AAEwAzj_qF3yS2opnixI_GbviPUpR6sobCo'  
 DOWNLOAD_DIR = 'temp_downloads'
 COOKIES = 'cookies.txt'
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -22,16 +23,19 @@ async def download_media(url):
     g_cmd = [
         'gallery-dl',
         '--cookies', COOKIES,
+        '--user-agent', USER_AGENT,
         '--directory', DOWNLOAD_DIR,
         '--filename', 'img_{id}_{num}.{extension}',
         url
     ]
     
-    # 2. yt-dlp: Focuses on Best Video/Audio (MP4 preferred for Telegram compatibility)
+    # 2. yt-dlp: Unlocked for maximum quality (1080p+)
     y_cmd = [
         'yt-dlp',
         '--cookies', COOKIES,
-        '-f', 'bestvideo[ext=mp4]+bestaudio[m4a]/best[ext=mp4]/best',
+        '--user-agent', USER_AGENT,
+        '-f', 'bv*+ba/b',               # Grabs the highest quality video and audio
+        '--merge-output-format', 'mp4', # Forces the final merged file to be an MP4
         '-P', DOWNLOAD_DIR,
         '-o', 'vid_%(id)s.%(ext)s',
         '--no-playlist',
@@ -48,7 +52,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Inform the user
-    status = await update.message.reply_text("🔍 Extracting high-quality media...")
+    status = await update.message.reply_text("🔍 Extracting highest-quality media...")
 
     # Wipe previous downloads to prevent mixing posts
     for f in glob.glob(f'{DOWNLOAD_DIR}/*'):
@@ -68,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
                 media_group.append(InputMediaPhoto(open(path, 'rb')))
-            elif ext.endswith(('.mp4', '.mov', '.m4v')):
+            elif ext.endswith(('.mp4', '.mov', '.m4v', '.mkv', '.webm')): # Added mkv/webm just in case merging fails
                 media_group.append(InputMediaVideo(open(path, 'rb')))
         except Exception as e:
             logging.error(f"Error opening file {path}: {e}")
@@ -89,8 +93,9 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🚀 Bot is running... Send me an Instagram link!")
+    print("🚀 Bot is running with unlocked quality... Send me an Instagram link!")
     app.run_polling()
 
 if __name__ == '__main__':
     main()
+    
