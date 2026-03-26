@@ -4,11 +4,11 @@ import subprocess
 import logging
 import random
 import asyncio
-from telegram import Update, InputMediaPhoto, InputMediaVideo, InputMediaDocument
+from telegram import Update, InputMediaPhoto, InputMediaVideo
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # --- CONFIGURATION ---
-TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+TOKEN = os.getenv('BOT_TOKEN', '8636548271:AAEwAzj_qF3yS2opnixI_GbviPUpR6sobCo')
 DOWNLOAD_DIR = '/tmp/downloads'
 COOKIES = 'cookies.txt'
 
@@ -21,44 +21,55 @@ STEALTH_ARGS = [
     '--header', f'User-Agent: {UA_STRING}',
     '--header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
     '--header', 'Accept-Language: en-US,en;q=0.9',
-    '--header', 'Sec-Ch-Ua-Platform: "Android"',
     '--header', 'Sec-Fetch-Dest: document',
     '--header', 'Sec-Fetch-Mode: navigate',
     '--header', 'Sec-Fetch-Site: none',
-    '--header', 'Upgrade-Insecure-Requests: 1'
 ]
 
 async def download_media(url):
     if not os.path.exists(DOWNLOAD_DIR): 
         os.makedirs(DOWNLOAD_DIR)
     
-    # Stealth: Random delay
-    await asyncio.sleep(random.uniform(3.0, 6.0))
+    await asyncio.sleep(random.uniform(3.5, 7.0))
 
-    # yt-dlp: Grabs the absolute highest video + audio. 
-    y_cmd = [
+    # 1. Fetch the Playable Video (Forces the best MP4 stream)
+    y_cmd_playable = [
+        'yt-dlp', '--cookies', COOKIES, *STEALTH_ARGS,
+        '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best', 
+        '--merge-output-format', 'mp4',
+        '-P', DOWNLOAD_DIR, 
+        '-o', 'playable_%(id)s.%(ext)s', 
+        '--no-playlist', url
+    ]
+
+    # 2. Fetch the Raw Document (Grabs the absolute max quality, e.g., WebM/MKV)
+    y_cmd_raw = [
         'yt-dlp', '--cookies', COOKIES, *STEALTH_ARGS,
         '-f', 'bv*+ba/b', 
         '-P', DOWNLOAD_DIR, 
-        '-o', 'vid_%(id)s.%(ext)s', 
+        '-o', 'raw_%(id)s.%(ext)s', 
         '--no-playlist', url
     ]
     
-    # gallery-dl: Focuses on original image quality
+    # 3. Fetch Images (if it's a carousel)
     g_cmd = [
         'gallery-dl', '--cookies', COOKIES, 
         '--user-agent', UA_STRING, 
         '--directory', DOWNLOAD_DIR, url
     ]
 
-    await asyncio.to_thread(subprocess.run, g_cmd, capture_output=True)
-    await asyncio.to_thread(subprocess.run, y_cmd, capture_output=True)
+    # Run all downloads concurrently
+    await asyncio.gather(
+        asyncio.to_thread(subprocess.run, g_cmd, capture_output=True),
+        asyncio.to_thread(subprocess.run, y_cmd_playable, capture_output=True),
+        asyncio.to_thread(subprocess.run, y_cmd_raw, capture_output=True)
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     if "instagram.com" not in url: return
 
-    status = await update.message.reply_text("🛡️ Extracting maximum quality (Playable + Document)...")
+    status = await update.message.reply_text("🛡️ Bypassing detection & fetching BOTH Playable + Raw formats...")
     
     for f in glob.glob(f'{DOWNLOAD_DIR}/*'): 
         try: os.remove(f)
@@ -71,16 +82,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     playable_media = []
     document_media = []
     
-    # Core Fix: Send videos to BOTH the playable list and the document list
+    # Strict Sorting: Separate the playable MP4s from the raw documents
     for path in files:
         ext = path.lower()
+        filename = os.path.basename(path)
+
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             playable_media.append(InputMediaPhoto(open(path, 'rb')))
-        elif ext.endswith(('.mp4', '.mov', '.webm', '.mkv')):
+        elif filename.startswith('playable_') and ext.endswith('.mp4'):
             playable_media.append(InputMediaVideo(open(path, 'rb')))
-            document_media.append(path) # Save the path to send as a document next
+        elif filename.startswith('raw_'):
+            document_media.append(path)
 
-    # 1. Send Playable Media (Photos & Videos grouped together so you can watch inline)
+    # 1. Send Playable Media (Photos & the specific MP4 video)
     if playable_media:
         try:
             for i in range(0, len(playable_media), 10):
@@ -88,26 +102,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Playable Upload Error: {e}")
 
-    # 2. Send the exact same videos again, but purely as uncompressed Documents
+    # 2. Send Raw Document (The absolute highest quality WebM, MKV, or MP4)
     if document_media:
+        # Check to make sure we don't send the exact same file twice if MP4 was already the highest quality
         for doc_path in document_media:
             try:
                 await update.message.reply_document(
                     document=open(doc_path, 'rb'), 
-                    caption="📄 Pure Uncompressed Original"
+                    caption="📄 Original Uncompressed Source Format"
                 )
             except Exception as e:
                 logging.error(f"Document Upload Error: {e}")
 
     if not playable_media and not document_media:
-        await status.edit_text("❌ Download failed. Instagram may have blocked the request.")
+        await status.edit_text("❌ Download failed. Instagram detected the scraper or the link is invalid.")
     else:
         await status.delete()
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Dual-Delivery Bot is LIVE...")
+    print("🚀 Dual-Fetch Mode is LIVE...")
     app.run_polling()
 
 if __name__ == '__main__':
