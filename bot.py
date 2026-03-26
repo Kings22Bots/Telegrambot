@@ -8,14 +8,13 @@ from telegram import Update, InputMediaPhoto, InputMediaVideo, InputMediaDocumen
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # --- CONFIGURATION ---
-TOKEN = os.getenv('BOT_TOKEN', '8636548271:AAEwAzj_qF3yS2opnixI_GbviPUpR6sobCo')
+TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 DOWNLOAD_DIR = '/tmp/downloads'
 COOKIES = 'cookies.txt'
 
 logging.basicConfig(level=logging.INFO)
 
 # --- ADVANCED STEALTH HEADERS ---
-# Using a specific, modern mobile fingerprint to authenticate the session naturally
 UA_STRING = 'Mozilla/5.0 (Linux; Android 14; iQOO Z9x) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36'
 
 STEALTH_ARGS = [
@@ -33,10 +32,10 @@ async def download_media(url):
     if not os.path.exists(DOWNLOAD_DIR): 
         os.makedirs(DOWNLOAD_DIR)
     
-    # Anti-Detection: Heavier random delay to mimic human feed-scrolling
-    await asyncio.sleep(random.uniform(4.0, 8.5))
+    # Stealth: Random delay
+    await asyncio.sleep(random.uniform(3.0, 6.0))
 
-    # yt-dlp: Grabs highest raw video + audio. No forced merging format.
+    # yt-dlp: Grabs the absolute highest video + audio. 
     y_cmd = [
         'yt-dlp', '--cookies', COOKIES, *STEALTH_ARGS,
         '-f', 'bv*+ba/b', 
@@ -59,7 +58,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     if "instagram.com" not in url: return
 
-    status = await update.message.reply_text("🛡️ Bypassing detection & extracting raw media...")
+    status = await update.message.reply_text("🛡️ Extracting maximum quality (Playable + Document)...")
     
     for f in glob.glob(f'{DOWNLOAD_DIR}/*'): 
         try: os.remove(f)
@@ -72,45 +71,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     playable_media = []
     document_media = []
     
-    # Smart Sorting: Separates playable formats from document formats
+    # Core Fix: Send videos to BOTH the playable list and the document list
     for path in files:
         ext = path.lower()
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             playable_media.append(InputMediaPhoto(open(path, 'rb')))
-        elif ext.endswith(('.mp4', '.mov')):
+        elif ext.endswith(('.mp4', '.mov', '.webm', '.mkv')):
             playable_media.append(InputMediaVideo(open(path, 'rb')))
-        elif ext.endswith(('.webm', '.mkv')):
-            document_media.append(path) # Kept as string paths for document sending
+            document_media.append(path) # Save the path to send as a document next
 
-    # 1. Send Playable Media (Photos & MP4s grouped together)
+    # 1. Send Playable Media (Photos & Videos grouped together so you can watch inline)
     if playable_media:
         try:
             for i in range(0, len(playable_media), 10):
                 await update.message.reply_media_group(playable_media[i:i+10])
         except Exception as e:
-            logging.error(f"Telegram Playable Upload Error: {e}")
+            logging.error(f"Playable Upload Error: {e}")
 
-    # 2. Send Raw Documents (WebM, MKV) separately
+    # 2. Send the exact same videos again, but purely as uncompressed Documents
     if document_media:
         for doc_path in document_media:
             try:
                 await update.message.reply_document(
                     document=open(doc_path, 'rb'), 
-                    caption="📄 Raw High-Quality Format"
+                    caption="📄 Pure Uncompressed Original"
                 )
             except Exception as e:
-                logging.error(f"Telegram Document Upload Error: {e}")
+                logging.error(f"Document Upload Error: {e}")
 
     if not playable_media and not document_media:
-        await status.edit_text("❌ Download failed. The security wall blocked the request or cookies expired.")
+        await status.edit_text("❌ Download failed. Instagram may have blocked the request.")
     else:
         await status.delete()
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Stealth Bot is LIVE with Smart Format Sorting...")
+    print("🚀 Dual-Delivery Bot is LIVE...")
     app.run_polling()
 
 if __name__ == '__main__':
     main()
+    
