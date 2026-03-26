@@ -15,12 +15,14 @@ COOKIES = 'cookies.txt'
 logging.basicConfig(level=logging.INFO)
 
 # --- ADVANCED STEALTH HEADERS ---
-UA_STRING = 'Mozilla/5.0 (Linux; Android 14; iQOO Z9x) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36'
+# Perfectly synced to your Kiwi Browser session
+UA_STRING = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36'
 
 STEALTH_ARGS = [
     '--header', f'User-Agent: {UA_STRING}',
     '--header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
     '--header', 'Accept-Language: en-US,en;q=0.9',
+    '--header', 'Sec-Ch-Ua-Platform: "Android"',
     '--header', 'Sec-Fetch-Dest: document',
     '--header', 'Sec-Fetch-Mode: navigate',
     '--header', 'Sec-Fetch-Site: none',
@@ -30,6 +32,7 @@ async def download_media(url):
     if not os.path.exists(DOWNLOAD_DIR): 
         os.makedirs(DOWNLOAD_DIR)
     
+    # Human-like delay
     await asyncio.sleep(random.uniform(3.5, 7.0))
 
     # 1. Fetch the Playable Video (Forces the best MP4 stream)
@@ -58,18 +61,24 @@ async def download_media(url):
         '--directory', DOWNLOAD_DIR, url
     ]
 
-    # Run all downloads concurrently
-    await asyncio.gather(
-        asyncio.to_thread(subprocess.run, g_cmd, capture_output=True),
-        asyncio.to_thread(subprocess.run, y_cmd_playable, capture_output=True),
-        asyncio.to_thread(subprocess.run, y_cmd_raw, capture_output=True)
+    # Run downloads and capture output for debugging
+    g_res, y_play_res, y_raw_res = await asyncio.gather(
+        asyncio.to_thread(subprocess.run, g_cmd, capture_output=True, text=True),
+        asyncio.to_thread(subprocess.run, y_cmd_playable, capture_output=True, text=True),
+        asyncio.to_thread(subprocess.run, y_cmd_raw, capture_output=True, text=True)
     )
+
+    # Print exact background errors to the Railway console if they fail
+    if y_play_res.returncode != 0:
+        logging.error(f"yt-dlp Playable Error: {y_play_res.stderr}")
+    if y_raw_res.returncode != 0:
+        logging.error(f"yt-dlp Raw Error: {y_raw_res.stderr}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     if "instagram.com" not in url: return
 
-    status = await update.message.reply_text("🛡️ Bypassing detection & fetching BOTH Playable + Raw formats...")
+    status = await update.message.reply_text("🛡️ Syncing session & fetching Dual Formats...")
     
     for f in glob.glob(f'{DOWNLOAD_DIR}/*'): 
         try: os.remove(f)
@@ -82,7 +91,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     playable_media = []
     document_media = []
     
-    # Strict Sorting: Separate the playable MP4s from the raw documents
+    # Strict Sorting
     for path in files:
         ext = path.lower()
         filename = os.path.basename(path)
@@ -94,7 +103,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif filename.startswith('raw_'):
             document_media.append(path)
 
-    # 1. Send Playable Media (Photos & the specific MP4 video)
+    # 1. Send Playable Media
     if playable_media:
         try:
             for i in range(0, len(playable_media), 10):
@@ -102,9 +111,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Playable Upload Error: {e}")
 
-    # 2. Send Raw Document (The absolute highest quality WebM, MKV, or MP4)
+    # 2. Send Raw Document
     if document_media:
-        # Check to make sure we don't send the exact same file twice if MP4 was already the highest quality
         for doc_path in document_media:
             try:
                 await update.message.reply_document(
@@ -115,16 +123,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"Document Upload Error: {e}")
 
     if not playable_media and not document_media:
-        await status.edit_text("❌ Download failed. Instagram detected the scraper or the link is invalid.")
+        await status.edit_text("❌ Download failed. Check Railway 'Deploy Logs' for the exact error.")
     else:
         await status.delete()
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Dual-Fetch Mode is LIVE...")
+    print("🚀 Dual-Fetch Mode is LIVE with Custom Fingerprint...")
     app.run_polling()
 
 if __name__ == '__main__':
     main()
-    
